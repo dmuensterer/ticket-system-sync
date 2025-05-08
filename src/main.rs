@@ -1,13 +1,16 @@
+mod models;
+
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    routing::post,
-    Json, Router,
+    extract::{Path, State}, http::StatusCode, routing::post, Json, Router
 };
+use models::{jira::JiraSystem, ticketsystem::TicketSystem};
+use models::zammad::ZammadSystem;
+use serde_json::Value;
+
 use clap::Parser;
-use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tracing::{error, info};
+use async_trait::async_trait;
 
 /// ----------------------------------------------------------------------
 /// 1  Kommandozeilen-Argumente
@@ -24,53 +27,65 @@ struct Cli {
     jira_id: String,
 
     /// Port (Default 8080)
-    #[arg(short, long, default_value_t = 8080)]
+    #[arg(short, long, default_value_t = 8000)]
     port: u16,
 }
 
 /// ----------------------------------------------------------------------
 /// 2  Gemeinsamer App-State
 /// ----------------------------------------------------------------------
-#[derive(Clone)]
 struct AppState {
-    id_map: HashMap<String, TicketSystem>,
+    id_map: HashMap<String, Box<dyn TicketSystem>>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum TicketSystem {
-    Zammad,
-    Jira,
-}
+
+
+/// Jira ticket system implementation
+
 
 /// ----------------------------------------------------------------------
-/// 3  Datentypen – eingehend (Zammad) + ausgehend (Jira)
+/// 3  API Endpoints
 /// ----------------------------------------------------------------------
-#[derive(Debug, Deserialize)]
-struct ZammadEvent {
-    event: String,
-    #[serde(flatten)]
-    extra: HashMap<String, serde_json::Value>,
+#[async_trait]
+pub trait APIEndpoint: Send + Sync {
+    fn endpoint_type(&self) -> &'static str;
+    async fn process_webhook(&self, system: &dyn TicketSystem, payload: Value) -> Result<(), String>;
 }
 
-#[derive(Debug, Serialize)]
-struct JiraCreateRequest {
-    fields: JiraFields,
+pub struct CreateTicketEndpoint;
+
+#[async_trait]
+impl APIEndpoint for CreateTicketEndpoint {
+    fn endpoint_type(&self) -> &'static str {
+        "create-ticket"
+    }
+
+    async fn process_webhook(&self, system: &dyn TicketSystem, payload: Value) -> Result<(), String> {
+        info!("Processing create ticket request for {}", system.name());
+        system.process_webhook(payload).await
+    }
 }
-#[derive(Debug, Serialize)]
-struct JiraFields {
-    project: JiraProject,
-    summary: String,
-    description: String,
-    #[serde(rename = "issuetype")]
-    issue_type: JiraIssueType,
+
+pub struct AddCommentEndpoint;
+
+#[async_trait]
+impl APIEndpoint for AddCommentEndpoint {
+    fn endpoint_type(&self) -> &'static str {
+        "add-comment"
+    }
+
+    async fn process_webhook(&self, system: &dyn TicketSystem, payload: Value) -> Result<(), String> {
+        info!("Processing add comment request for {}", system.name());
+        system.process_webhook(payload).await
+    }
 }
-#[derive(Debug, Serialize)]
-struct JiraProject {
-    key: String,
-}
-#[derive(Debug, Serialize)]
-struct JiraIssueType {
-    name: String,
+
+fn create_endpoint(request_type: &str) -> Option<Box<dyn APIEndpoint>> {
+    match request_type {
+        "create-ticket" => Some(Box::new(CreateTicketEndpoint)),
+        "add-comment" => Some(Box::new(AddCommentEndpoint)),
+        _ => None,
+    }
 }
 
 /// ----------------------------------------------------------------------
@@ -87,20 +102,19 @@ async fn main() {
     let cli = Cli::parse();
 
     // c) State vorbereiten (Map ID → TicketSystem)
-    let mut id_map = HashMap::new();
-    id_map.insert(cli.zammad_id.clone(), TicketSystem::Zammad);
-    id_map.insert(cli.jira_id.clone(), TicketSystem::Jira);
+    let mut id_map: HashMap<String, Box<dyn TicketSystem>> = HashMap::new();
+    id_map.insert(cli.zammad_id.clone(), Box::new(ZammadSystem));
+    id_map.insert(cli.jira_id.clone(), Box::new(JiraSystem));
     let state = Arc::new(AppState { id_map });
 
     // d) Router
     let app = Router::new()
-        // → POST /ticket-sync/<id>
-        .route("/ticket-sync/:id", post(webhook))
+        .route("/ticket-sync/:request_type/:id", post(webhook))
         .with_state(state);
 
     // e) Server
     let addr = SocketAddr::from(([0, 0, 0, 0], cli.port));
-    info!("Listening on http://{addr}/ticket-sync/<id>");
+    info!("Listening on http://{addr}/ticket-sync/<request_type>/<id>");
     axum::serve(
         tokio::net::TcpListener::bind(addr).await.unwrap(),
         app
@@ -113,58 +127,32 @@ async fn main() {
 /// 5  Handler
 /// ----------------------------------------------------------------------
 async fn webhook(
-    Path(id): Path<String>,
+    Path((request_type, id)): Path<(String, String)>,
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<serde_json::Value>,
+    Json(payload): Json<Value>,
 ) -> StatusCode {
+    // First, validate the request type and create the appropriate endpoint
+    let endpoint = match create_endpoint(&request_type) {
+        Some(endpoint) => endpoint,
+        None => {
+            error!("Invalid request type: {}", request_type);
+            return StatusCode::BAD_REQUEST;
+        }
+    };
+
+    // Then, get the appropriate ticket system
     match state.id_map.get(&id) {
-        // --------------------------------------------------------------
-        // a) Zammad → Jira  (One-Way)
-        // --------------------------------------------------------------
-        Some(TicketSystem::Zammad) => {
-            match serde_json::from_value::<ZammadEvent>(payload) {
-                Ok(evt) => {
-                    info!("Zammad-Event {:?}", evt.event);
-
-                    // Nur ein minimaler Mapper:
-                    let jira_req = JiraCreateRequest {
-                        fields: JiraFields {
-                            project: JiraProject { key: "CUN".into() },
-                            summary: format!("Zammad {}", evt.event),
-                            description: format!(
-                                "Importiert von Zammad-Hook\n\n{:?}",
-                                evt.extra
-                            ),
-                            issue_type: JiraIssueType { name: "Task".into() },
-                        },
-                    };
-
-                    // Dry-run: nur ausgeben
-                    info!("→ Jira-Payload\n{}", serde_json::to_string_pretty(&jira_req).unwrap());
-
-                    // TODO: reqwest-POST   (nächster Schritt)
-                    StatusCode::OK
-                }
+        Some(system) => {
+            match endpoint.process_webhook(system.as_ref(), payload).await {
+                Ok(_) => StatusCode::OK,
                 Err(e) => {
-                    error!("JSON Fehler {}", e);
-                    StatusCode::BAD_REQUEST
+                    error!("Error processing webhook: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
                 }
             }
         }
-
-        // --------------------------------------------------------------
-        // b) Jira schickt einen Hook (künftig für Bidirektionalität)
-        // --------------------------------------------------------------
-        Some(TicketSystem::Jira) => {
-            info!("(noch) ignorierter Jira-Webhook");
-            StatusCode::NO_CONTENT
-        }
-
-        // --------------------------------------------------------------
-        // c) Unbekannte ID
-        // --------------------------------------------------------------
         None => {
-            error!("Unbekannte ID {}", id);
+            error!("Unknown system ID: {}", id);
             StatusCode::NOT_FOUND
         }
     }
