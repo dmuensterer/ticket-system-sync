@@ -1,5 +1,5 @@
-use axum::{async_trait, http::Error};
-use serde::{Deserialize, Serialize};
+use axum::async_trait;
+use serde::Serialize;
 use serde_json::Value;
 use tracing::info;
 
@@ -34,7 +34,13 @@ impl TicketSystem for JiraSystem {
         "Jira"
     }
 
-    async fn process_webhook(&self, payload: Value) -> Result<(), String> {
+    async fn add_comment(&self, payload: Value) -> Result<(), String> {
+        info!("Jira Webhook not yet implemented");
+        // TODO: Implement Jira-specific processing
+        Ok(())
+    }
+
+    async fn create_ticket(&self, payload: Value) -> Result<(), String> {
         info!("Jira Webhook not yet implemented");
         // TODO: Implement Jira-specific processing
         Ok(())
