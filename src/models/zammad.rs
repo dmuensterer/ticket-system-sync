@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use serde_json::Value;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use serde_json::Value;
+use tracing::{error, info};
 
 use super::ticketsystem::TicketSystem;
 
@@ -22,25 +22,25 @@ pub struct ZammadWebhook {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ZammadTicket {
     /// Unique identifier for the ticket in Zammad
-    pub id:                u64,                         
+    pub id: u64,
     /// Human-readable ticket number (e.g., "45003")
-    pub number:            String,                      
+    pub number: String,
     /// The ticket's title/subject (e.g., "Test Ticket")
-    pub title:             String,                      
+    pub title: String,
     /// Current state of the ticket (e.g., "open", "closed")
-    pub state:             String,                      
+    pub state: String,
     /// Priority information including name and ID
-    pub priority:          ZammadPriority,             
+    pub priority: ZammadPriority,
     /// When the ticket was created
-    pub created_at:        DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
     /// When the ticket was last updated
-    pub updated_at:        DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     /// Optional due date for the ticket
-    pub due_date:          Option<DateTime<Utc>>,       
+    pub due_date: Option<DateTime<Utc>>,
     /// User who created the ticket
-    pub created_by:        ZammadUser,                  
+    pub created_by: ZammadUser,
     /// User who is currently assigned to the ticket
-    pub owner:             ZammadUser,          
+    pub owner: ZammadUser,
 }
 
 /// Represents a Zammad priority level.
@@ -59,13 +59,13 @@ pub struct ZammadPriority {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ZammadUser {
     /// Unique identifier for the user
-    pub id:        u64,
+    pub id: u64,
     /// User's email address (also used as login)
-    pub email:     String,
+    pub email: String,
     /// User's first name
     pub firstname: String,
     /// User's last name
-    pub lastname:  String,
+    pub lastname: String,
 }
 
 /// Represents a Zammad article (comment/message) on a ticket.
@@ -73,27 +73,26 @@ pub struct ZammadUser {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ZammadArticle {
     /// Unique identifier for the article
-    pub id:           u64,
+    pub id: u64,
     /// ID of the ticket this article belongs to
-    pub ticket_id:    u64,
+    pub ticket_id: u64,
     /// The actual content/message of the article
-    pub body:         String,               
+    pub body: String,
     /// MIME type of the content (e.g., "text/html", "text/plain")
-    pub content_type: String,               
+    pub content_type: String,
     /// When the article was created
-    pub created_at:   DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
     /// When the article was last updated
-    pub updated_at:   DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     /// Who sent the article (e.g., "Customer", "Agent")
-    pub sender:       String,               
+    pub sender: String,
     /// Optional "From" field (e.g., "Dominik Münsterer")
-    pub from:         Option<String>,       
+    pub from: Option<String>,
     /// Optional "To" field (e.g., "Users")
-    pub to:           Option<String>,       
+    pub to: Option<String>,
     /// Whether this is an internal note (not visible to customers)
-    pub internal:     bool,                 
+    pub internal: bool,
 }
-
 
 pub struct ZammadSystem;
 
@@ -103,15 +102,32 @@ impl TicketSystem for ZammadSystem {
         "Zammad"
     }
 
-    async fn process_webhook(&self, payload: Value) -> Result<(), String> {
-        match serde_json::from_value::<ZammadWebhook>(payload) {
-            Ok(webhook) => {
-                info!("Processing Zammad webhook for ticket #{}", webhook.ticket.number);
-                // TODO: Implement Zammad-specific processing
-                info!("Zammad-Webhook: {:?}", webhook);
-                Ok(())
-            }
-            Err(e) => Err(format!("Failed to parse Zammad webhook: {}", e)),
-        }
+    #[tracing::instrument(skip_all, fields(ticket_id))]
+    async fn add_comment(&self, payload: Value) -> Result<(), String> {
+        let payload = parse_zammad_webhook(payload)?;
+
+        // Add ticket_id to the tracing span
+        tracing::Span::current().record("ticket_id", &payload.ticket.id);
+
+        info!("Adding comment to Zammad ticket");
+        Ok(())
     }
+
+    #[tracing::instrument(skip_all, fields(ticket_id))]
+    async fn create_ticket(&self, payload: Value) -> Result<(), String> {
+        let payload = parse_zammad_webhook(payload)?;
+
+        // Add ticket_id to the tracing span
+        tracing::Span::current().record("ticket_id", &payload.ticket.id);
+
+        info!("Creating Zammad ticket");
+        Ok(())
+    }
+}
+
+fn parse_zammad_webhook(payload: Value) -> Result<ZammadWebhook, String> {
+    serde_json::from_value::<ZammadWebhook>(payload).map_err(|e| {
+        error!("Failed to parse Zammad webhook: {}", e);
+        e.to_string()
+    })
 }

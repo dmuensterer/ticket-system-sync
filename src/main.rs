@@ -1,16 +1,19 @@
 mod models;
 
 use axum::{
-    extract::{Path, State}, http::StatusCode, routing::post, Json, Router
+    Json, Router,
+    extract::{Path, State},
+    http::StatusCode,
+    routing::post,
 };
-use models::{jira::JiraSystem, ticketsystem::TicketSystem};
 use models::zammad::ZammadSystem;
+use models::{jira::JiraSystem, ticketsystem::TicketSystem};
 use serde_json::Value;
 
+use async_trait::async_trait;
 use clap::Parser;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tracing::{error, info};
-use async_trait::async_trait;
 
 /// ----------------------------------------------------------------------
 /// 1  Kommandozeilen-Argumente
@@ -38,10 +41,7 @@ struct AppState {
     id_map: HashMap<String, Box<dyn TicketSystem>>,
 }
 
-
-
 /// Jira ticket system implementation
-
 
 /// ----------------------------------------------------------------------
 /// 3  API Endpoints
@@ -49,43 +49,11 @@ struct AppState {
 #[async_trait]
 pub trait APIEndpoint: Send + Sync {
     fn endpoint_type(&self) -> &'static str;
-    async fn process_webhook(&self, system: &dyn TicketSystem, payload: Value) -> Result<(), String>;
-}
-
-pub struct CreateTicketEndpoint;
-
-#[async_trait]
-impl APIEndpoint for CreateTicketEndpoint {
-    fn endpoint_type(&self) -> &'static str {
-        "create-ticket"
-    }
-
-    async fn process_webhook(&self, system: &dyn TicketSystem, payload: Value) -> Result<(), String> {
-        info!("Processing create ticket request for {}", system.name());
-        system.process_webhook(payload).await
-    }
-}
-
-pub struct AddCommentEndpoint;
-
-#[async_trait]
-impl APIEndpoint for AddCommentEndpoint {
-    fn endpoint_type(&self) -> &'static str {
-        "add-comment"
-    }
-
-    async fn process_webhook(&self, system: &dyn TicketSystem, payload: Value) -> Result<(), String> {
-        info!("Processing add comment request for {}", system.name());
-        system.process_webhook(payload).await
-    }
-}
-
-fn create_endpoint(request_type: &str) -> Option<Box<dyn APIEndpoint>> {
-    match request_type {
-        "create-ticket" => Some(Box::new(CreateTicketEndpoint)),
-        "add-comment" => Some(Box::new(AddCommentEndpoint)),
-        _ => None,
-    }
+    async fn process_webhook(
+        &self,
+        system: &dyn TicketSystem,
+        payload: Value,
+    ) -> Result<(), String>;
 }
 
 /// ----------------------------------------------------------------------
@@ -94,9 +62,7 @@ fn create_endpoint(request_type: &str) -> Option<Box<dyn APIEndpoint>> {
 #[tokio::main]
 async fn main() {
     // a) Logging
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     // b) CLI
     let cli = Cli::parse();
@@ -109,51 +75,61 @@ async fn main() {
 
     // d) Router
     let app = Router::new()
-        .route("/ticket-sync/:request_type/:id", post(webhook))
+        .route("/ticket-sync/create-ticket/:id", post(create_ticket))
+        .route("/ticket-sync/add-comment/:id", post(add_comment))
         .with_state(state);
 
     // e) Server
     let addr = SocketAddr::from(([0, 0, 0, 0], cli.port));
-    info!("Listening on http://{addr}/ticket-sync/<request_type>/<id>");
-    axum::serve(
-        tokio::net::TcpListener::bind(addr).await.unwrap(),
-        app
-    )
-    .await
-    .expect("server error");
+    info!("Listening on http://{addr}/ticket-sync/{{create-ticket, add-comment}}/<id>");
+    axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(), app)
+        .await
+        .expect("server error");
 }
 
 /// ----------------------------------------------------------------------
 /// 5  Handler
 /// ----------------------------------------------------------------------
-async fn webhook(
-    Path((request_type, id)): Path<(String, String)>,
+#[tracing::instrument(skip(state, payload))]
+async fn create_ticket(
+    Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     Json(payload): Json<Value>,
 ) -> StatusCode {
-    // First, validate the request type and create the appropriate endpoint
-    let endpoint = match create_endpoint(&request_type) {
-        Some(endpoint) => endpoint,
-        None => {
-            error!("Invalid request type: {}", request_type);
-            return StatusCode::BAD_REQUEST;
-        }
+    info!("creating ticket for ID: {}", id);
+
+    let Some(ticket_system) = state.id_map.get(&id) else {
+        error!("unknown system ID: {}", id);
+        return StatusCode::NOT_FOUND;
     };
 
-    // Then, get the appropriate ticket system
-    match state.id_map.get(&id) {
-        Some(system) => {
-            match endpoint.process_webhook(system.as_ref(), payload).await {
-                Ok(_) => StatusCode::OK,
-                Err(e) => {
-                    error!("Error processing webhook: {}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                }
-            }
+    match ticket_system.create_ticket(payload).await {
+        Ok(_) => StatusCode::OK,
+        Err(error) => {
+            error!(%error, "error creating ticket for ID: {}", id);
+            StatusCode::INTERNAL_SERVER_ERROR
         }
-        None => {
-            error!("Unknown system ID: {}", id);
-            StatusCode::NOT_FOUND
+    }
+}
+
+#[tracing::instrument(skip(state, payload))]
+async fn add_comment(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<Value>,
+) -> StatusCode {
+    info!("adding comment to ticket for ID: {}", id);
+
+    let Some(ticket_system) = state.id_map.get(&id) else {
+        error!("unknown system ID: {}", id);
+        return StatusCode::NOT_FOUND;
+    };
+
+    match ticket_system.add_comment(payload).await {
+        Ok(_) => StatusCode::OK,
+        Err(error) => {
+            error!(%error, "error adding comment to ticket for ID: {} error: {}", id, error);
+            StatusCode::INTERNAL_SERVER_ERROR
         }
     }
 }
