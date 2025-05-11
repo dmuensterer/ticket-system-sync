@@ -1,5 +1,5 @@
-use serde_json::Value;
 use async_trait::async_trait;
+use serde_json::Value;
 
 use super::{jira::JiraSystem, zammad::ZammadSystem};
 
@@ -8,9 +8,10 @@ use super::{jira::JiraSystem, zammad::ZammadSystem};
 pub trait TicketSystem: Send + Sync {
     /// Get the name of the ticket system
     fn name(&self) -> &'static str;
-    
+
     /// Process a webhook payload
-    async fn process_webhook(&self, payload: Value) -> Result<(), String>;
+    async fn add_comment(&self, payload: Value) -> Result<(), String>;
+    async fn create_ticket(&self, payload: Value) -> Result<(), String>;
 }
 
 /// Factory function to create the appropriate ticket system
