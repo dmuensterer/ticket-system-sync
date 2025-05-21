@@ -15,3 +15,9 @@ tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 chrono = { version = "0.4.41", features = ["serde"] }
 async-trait = "0.1.88"
+uuid =  { version = "1.16.0", features = ["v4"] }
+diesel = { version = "2.2.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+anyhow = "1.0.98"
+serde_repr = "0.1.20"
+serde_path_to_error = "0.1.17"
+serde_yaml = "0.9"

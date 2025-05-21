@@ -1,14 +1,24 @@
+use super::{
+    api_request::{JiraAddCommentRequest, JiraUpdateIssueRequest},
+    db::DB,
+};
+use std::sync::Arc;
+
+use anyhow;
 use async_trait::async_trait;
+use axum::{Json, Router, extract::Path, routing::post};
 use chrono::{DateTime, Utc};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{error, info};
+use serde_repr::Deserialize_repr;
+use tracing::{debug, error, info};
 
-use super::ticketsystem::TicketSystem;
+use crate::models::{api_request::JiraCreateIssueRequest, assignment::Assignment, jira::JiraIssue};
 
 /// Represents a Zammad webhook payload containing both ticket and article information.
 /// This is the top-level structure that Zammad sends when a ticket is created or updated.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ZammadWebhook {
     /// The ticket information including metadata, state, and relationships
     pub ticket: ZammadTicket,
@@ -19,16 +29,16 @@ pub struct ZammadWebhook {
 /// Represents a Zammad ticket with all its metadata and relationships.
 /// This structure contains all the essential information needed to create/update
 /// a corresponding ticket in another system (like Jira).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ZammadTicket {
     /// Unique identifier for the ticket in Zammad
-    pub id: u64,
+    pub id: i32,
     /// Human-readable ticket number (e.g., "45003")
     pub number: String,
     /// The ticket's title/subject (e.g., "Test Ticket")
     pub title: String,
-    /// Current state of the ticket (e.g., "open", "closed")
-    pub state: String,
+
+    pub state: ZammadState,
     /// Priority information including name and ID
     pub priority: ZammadPriority,
     /// When the ticket was created
@@ -36,27 +46,51 @@ pub struct ZammadTicket {
     /// When the ticket was last updated
     pub updated_at: DateTime<Utc>,
     /// Optional due date for the ticket
-    pub due_date: Option<DateTime<Utc>>,
+    pub due_date: DateTime<Utc>,
     /// User who created the ticket
     pub created_by: ZammadUser,
     /// User who is currently assigned to the ticket
     pub owner: ZammadUser,
 }
 
-/// Represents a Zammad priority level.
-/// Example: "2 normal" with ID 2
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ZammadPriority {
-    /// Unique identifier for the priority
-    pub id: u64,
-    /// Human-readable priority name (e.g., "2 normal", "3 high")
-    pub name: String,
+    pub id: ZammadPriorityId,
 }
 
+/// Represents a Zammad priority level.
+/// Example: "2 normal" with ID 2
+
+#[repr(i32)] // store the enum as an 32-bit integer
+#[derive(Debug, Serialize, Deserialize_repr, Clone, Copy)]
+pub enum ZammadPriorityId {
+    /// Unique identifier for the priority
+    Low = 1,
+    Normal = 2,
+    High = 3,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+// We're expecting either "open" or "closed" as a string. Need to deserialize it to the enum.
+#[serde(rename_all = "lowercase")]
+pub enum ZammadState {
+    Open,
+    Closed,
+}
+
+impl ZammadState {
+    pub fn from_str(state: String) -> Result<ZammadState, String> {
+        match state.as_str() {
+            "open" => Ok(ZammadState::Open),
+            "closed" => Ok(ZammadState::Closed),
+            _ => Err(format!("Invalid state: {}", state)),
+        }
+    }
+}
 /// Represents a Zammad user with essential contact information.
 /// This is a simplified version of the full user object from Zammad,
 /// containing only the fields we need for ticket synchronization.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ZammadUser {
     /// Unique identifier for the user
     pub id: u64,
@@ -70,64 +104,90 @@ pub struct ZammadUser {
 
 /// Represents a Zammad article (comment/message) on a ticket.
 /// Each article represents a communication in the ticket's history.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ZammadArticle {
     /// Unique identifier for the article
-    pub id: u64,
+    pub id: Option<u64>,
     /// ID of the ticket this article belongs to
-    pub ticket_id: u64,
+    pub ticket_id: Option<u64>,
     /// The actual content/message of the article
-    pub body: String,
+    pub body: Option<String>,
     /// MIME type of the content (e.g., "text/html", "text/plain")
-    pub content_type: String,
+    pub content_type: Option<String>,
     /// When the article was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Option<DateTime<Utc>>,
     /// When the article was last updated
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
     /// Who sent the article (e.g., "Customer", "Agent")
-    pub sender: String,
+    pub sender: Option<String>,
     /// Optional "From" field (e.g., "Dominik Münsterer")
     pub from: Option<String>,
     /// Optional "To" field (e.g., "Users")
     pub to: Option<String>,
-    /// Whether this is an internal note (not visible to customers)
-    pub internal: bool,
 }
 
-pub struct ZammadSystem;
+async fn create_ticket(id: String, webhook: ZammadWebhook) -> anyhow::Result<()> {
+    let db = DB::new().await?;
 
-#[async_trait]
-impl TicketSystem for ZammadSystem {
-    fn name(&self) -> &'static str {
-        "Zammad"
-    }
+    db.create_assignment_from_zammad(&webhook.ticket.id).await?;
 
-    #[tracing::instrument(skip_all, fields(ticket_id))]
-    async fn add_comment(&self, payload: Value) -> Result<(), String> {
-        let payload = parse_zammad_webhook(payload)?;
+    let jira_issue_id = JiraCreateIssueRequest::from_zammad_webhook(&webhook)
+        .submit()
+        .await?
+        .id;
+    db.add_jira_id_to_assignment(&jira_issue_id, &webhook.ticket.id)
+        .await?;
+    Ok(())
+}
 
-        // Add ticket_id to the tracing span
-        tracing::Span::current().record("ticket_id", &payload.ticket.id);
-
-        info!("Adding comment to Zammad ticket");
-        Ok(())
-    }
-
-    #[tracing::instrument(skip_all, fields(ticket_id))]
-    async fn create_ticket(&self, payload: Value) -> Result<(), String> {
-        let payload = parse_zammad_webhook(payload)?;
-
-        // Add ticket_id to the tracing span
-        tracing::Span::current().record("ticket_id", &payload.ticket.id);
-
-        info!("Creating Zammad ticket");
-        Ok(())
+#[tracing::instrument(skip(payload))]
+async fn create_ticket_handler(
+    Path(id): Path<String>,
+    Json(payload): Json<ZammadWebhook>,
+) -> StatusCode {
+    match create_ticket(id, payload).await {
+        Ok(_) => StatusCode::OK,
+        Err(e) => {
+            error!("Failed to create ticket: {}", e);
+            StatusCode::BAD_REQUEST
+        }
     }
 }
 
-fn parse_zammad_webhook(payload: Value) -> Result<ZammadWebhook, String> {
-    serde_json::from_value::<ZammadWebhook>(payload).map_err(|e| {
-        error!("Failed to parse Zammad webhook: {}", e);
-        e.to_string()
-    })
+#[tracing::instrument(skip(payload))]
+async fn update_ticket_handler(Json(payload): Json<ZammadWebhook>) -> StatusCode {
+    match update_ticket(payload).await {
+        Ok(_) => StatusCode::OK,
+        Err(e) => {
+            error!("Failed to create ticket: {}", e);
+            StatusCode::BAD_REQUEST
+        }
+    }
+}
+
+async fn update_ticket(payload: ZammadWebhook) -> anyhow::Result<()> {
+    let db = DB::new().await?;
+    let jira_issue_id = db.get_jira_id_by_zammad_id(&payload.ticket.id).await?;
+
+    // We want to add a comment to the Jira issue if the article body is not empty
+    if payload.article.body.is_some() {
+        JiraAddCommentRequest::from_zammad_webhook(&payload)
+            .submit(&jira_issue_id)
+            .await?;
+    }
+
+    // We want to update the Jira issue with the new values from the Zammad ticket
+    JiraUpdateIssueRequest::from_zammad_webhook(&payload)
+        .submit(&jira_issue_id)
+        .await?;
+
+    Ok(())
+}
+
+pub fn router() -> Router {
+    // Using specific Router<()> type to ensure we don't need state
+    let router: Router<()> = Router::new()
+        .route("/create-ticket/:id", post(create_ticket_handler))
+        .route("/update-ticket/:id", post(update_ticket_handler));
+    router
 }
