@@ -1,0 +1,94 @@
+{
+    "timestamp": 1747830753968,
+    "webhookEvent": "comment_created",
+    "comment": {
+        "self": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/issue/10027/comment/10030",
+        "id": "10030",
+        "author": {
+            "self": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/user?accountId=712020%3Ac7632a2f-5f1e-4e16-9fa8-754b69cb7127",
+            "accountId": "712020:c7632a2f-5f1e-4e16-9fa8-754b69cb7127",
+            "avatarUrls": {
+                "48x48": "https://secure.gravatar.com/avatar/cef1a875a358c5ec1dca288a569f1bc4?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDM-3.png",
+                "24x24": "https://secure.gravatar.com/avatar/cef1a875a358c5ec1dca288a569f1bc4?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDM-3.png",
+                "16x16": "https://secure.gravatar.com/avatar/cef1a875a358c5ec1dca288a569f1bc4?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDM-3.png",
+                "32x32": "https://secure.gravatar.com/avatar/cef1a875a358c5ec1dca288a569f1bc4?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDM-3.png"
+            },
+            "displayName": "Dominik Münsterer",
+            "active": true,
+            "timeZone": "Europe/Berlin",
+            "accountType": "atlassian"
+        },
+        "body": "huhu123",
+        "updateAuthor": {
+            "self": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/user?accountId=712020%3Ac7632a2f-5f1e-4e16-9fa8-754b69cb7127",
+            "accountId": "712020:c7632a2f-5f1e-4e16-9fa8-754b69cb7127",
+            "avatarUrls": {
+                "48x48": "https://secure.gravatar.com/avatar/cef1a875a358c5ec1dca288a569f1bc4?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDM-3.png",
+                "24x24": "https://secure.gravatar.com/avatar/cef1a875a358c5ec1dca288a569f1bc4?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDM-3.png",
+                "16x16": "https://secure.gravatar.com/avatar/cef1a875a358c5ec1dca288a569f1bc4?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDM-3.png",
+                "32x32": "https://secure.gravatar.com/avatar/cef1a875a358c5ec1dca288a569f1bc4?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDM-3.png"
+            },
+            "displayName": "Dominik Münsterer",
+            "active": true,
+            "timeZone": "Europe/Berlin",
+            "accountType": "atlassian"
+        },
+        "created": "2025-05-21T14:32:33.968+0200",
+        "updated": "2025-05-21T14:32:33.968+0200",
+        "jsdPublic": true
+    },
+    "issue": {
+        "id": "10027",
+        "self": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/10027",
+        "key": "TSP-28",
+        "fields": {
+            "summary": "huhu123",
+            "issuetype": {
+                "self": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/issuetype/10014",
+                "id": "10014",
+                "description": "Ein kleine, bestimmte Aufgabe.",
+                "iconUrl": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10683?size=medium",
+                "name": "Task",
+                "subtask": false,
+                "avatarId": 10683,
+                "hierarchyLevel": 0
+            },
+            "project": {
+                "self": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/project/10002",
+                "id": "10002",
+                "key": "TSP",
+                "name": "Ticket-Sync-Projekt",
+                "projectTypeKey": "service_desk",
+                "simplified": false,
+                "avatarUrls": {
+                    "48x48": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10414",
+                    "24x24": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10414?size=small",
+                    "16x16": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10414?size=xsmall",
+                    "32x32": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10414?size=medium"
+                }
+            },
+            "assignee": null,
+            "priority": {
+                "self": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/priority/3",
+                "iconUrl": "https://privaterelay-team-bpj23n5n.atlassian.net/images/icons/priorities/medium.svg",
+                "name": "Medium",
+                "id": "3"
+            },
+            "status": {
+                "self": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/status/1",
+                "description": "Der Vorgang ist offen und bereit, dass der Bearbeiter mit der Arbeit daran beginnen kann.",
+                "iconUrl": "https://privaterelay-team-bpj23n5n.atlassian.net/images/icons/statuses/open.png",
+                "name": "Offen",
+                "id": "1",
+                "statusCategory": {
+                    "self": "https://privaterelay-team-bpj23n5n.atlassian.net/rest/api/2/statuscategory/2",
+                    "id": 2,
+                    "key": "new",
+                    "colorName": "blue-gray",
+                    "name": "Zu erledigen"
+                }
+            }
+        }
+    },
+    "eventType": "primaryAction"
+}

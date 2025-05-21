@@ -3,13 +3,14 @@ use serde::Deserialize;
 use std::fs;
 use std::sync::OnceLock;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub jira: JiraConfig,
     pub zammad: ZammadConfig,
+    pub db_path: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct JiraConfig {
     pub endpoint: String,
     pub username: String,
@@ -17,11 +18,12 @@ pub struct JiraConfig {
     pub project_id: i32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ZammadConfig {
     pub endpoint: String,
-    pub username: String,
     pub token: String,
+    pub group: String,
+    pub customer: String,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();

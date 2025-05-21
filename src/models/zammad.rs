@@ -2,15 +2,12 @@ use super::{
     api_request::{JiraAddCommentRequest, JiraUpdateIssueRequest},
     db::DB,
 };
-use std::sync::Arc;
 
 use anyhow;
-use async_trait::async_trait;
 use axum::{Json, Router, extract::Path, routing::post};
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use serde_repr::Deserialize_repr;
 use tracing::{debug, error, info};
 

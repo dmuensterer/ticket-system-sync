@@ -1,14 +1,14 @@
 use axum::{Json, Router, extract::Path, routing::post};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use tracing::{error, instrument};
+use tracing::{error, info, instrument};
 
-use super::zammad::ZammadState;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JiraWebhook<T> {
-    pub issue: T,
-}
+use super::{
+    db::DB,
+    zammad::ZammadState,
+    zammad_api::{ZammadAddCommentRequest, ZammadUpdateTicketRequest},
+};
+use crate::models::jira_webhook::JiraWebhook;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JiraIssue {
@@ -66,7 +66,7 @@ impl JiraStatus {
 }
 
 #[instrument(skip(webhook))]
-async fn create_ticket(id: String, webhook: JiraWebhook<JiraIssue>) -> anyhow::Result<()> {
+async fn create_ticket(id: String, webhook: JiraWebhook) -> anyhow::Result<()> {
     // TODO: Implement Jira to Zammad ticket creation
     Ok(())
 }
@@ -75,7 +75,7 @@ async fn create_ticket(id: String, webhook: JiraWebhook<JiraIssue>) -> anyhow::R
 #[axum::debug_handler]
 async fn create_ticket_handler(
     Path(id): Path<String>,
-    Json(payload): Json<JiraWebhook<JiraIssue>>,
+    Json(payload): Json<JiraWebhook>,
 ) -> StatusCode {
     match create_ticket(id, payload).await {
         Ok(_) => StatusCode::OK,
@@ -87,8 +87,33 @@ async fn create_ticket_handler(
 }
 
 #[instrument(skip(webhook))]
-async fn update_ticket(webhook: JiraWebhook<JiraIssue>) -> anyhow::Result<()> {
-    // TODO: Implement Jira to Zammad ticket update
+async fn update_ticket(webhook: JiraWebhook) -> anyhow::Result<()> {
+    let db = DB::new().await?;
+
+    // Get the Jira issue ID from the webhook
+    let jira_issue_id = webhook
+        .jira_webhook_issue
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No issue information in webhook"))?
+        .id;
+
+    // Get the corresponding Zammad ticket ID
+    let zammad_id = db.get_zammad_id_by_jira_id(&jira_issue_id).await?;
+
+    // If there's a comment in the webhook, we should add it to Zammad
+    if let Some(comment) = webhook.jira_webhook_comment {
+        ZammadAddCommentRequest::from_jira_comment(&comment)
+            .submit(&zammad_id)
+            .await?;
+    }
+
+    //    // If there's a changelog, we should update the Zammad ticket
+    //    if webhook.jira_webhook_changelog.is_some() || webhook.jira_webhook_issue.is_some() {
+    //        ZammadUpdateTicketRequest::from_jira_webhook(&webhook)
+    //            .submit(&zammad_id)
+    //            .await?;
+    //    }
+
     Ok(())
 }
 
@@ -96,7 +121,7 @@ async fn update_ticket(webhook: JiraWebhook<JiraIssue>) -> anyhow::Result<()> {
 #[axum::debug_handler]
 async fn update_ticket_handler(
     Path(id): Path<String>,
-    Json(payload): Json<JiraWebhook<JiraIssue>>,
+    Json(payload): Json<JiraWebhook>,
 ) -> StatusCode {
     match update_ticket(payload).await {
         Ok(_) => StatusCode::OK,

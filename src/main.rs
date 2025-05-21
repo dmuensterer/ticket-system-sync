@@ -29,7 +29,7 @@ struct Cli {
 
 #[tokio::main]
 async fn main() {
-    config::init();
+    config::init().unwrap();
 
     // a) Logging
     tracing_subscriber::fmt().with_env_filter("info").init();

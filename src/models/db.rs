@@ -2,18 +2,20 @@ use serde::Serialize;
 use sqlx::{Connection, Pool, Row, Sqlite, SqliteConnection, SqlitePool, migrate::MigrateDatabase};
 use tracing::{debug, info};
 
+use crate::config;
+
 use super::assignment::Assignment;
 
 pub struct DB {
     conn: Pool<Sqlite>,
-    path: &'static str,
+    path: String,
 }
 
 impl DB {
     pub async fn new() -> anyhow::Result<Self> {
-        let db_path = "sqlite://database.db";
-        Self::create_db(db_path).await.unwrap();
-        let conn = SqlitePool::connect(db_path).await.unwrap();
+        let db_path = format!("sqlite://{}", &config::get().db_path);
+        Self::create_db(&db_path).await.unwrap();
+        let conn = SqlitePool::connect(&db_path).await.unwrap();
 
         let db = Self {
             conn,
@@ -82,6 +84,17 @@ impl DB {
             .map_err(|e| anyhow::anyhow!("Failed to get jira_id from row: {}", e))?;
 
         Ok(jira_id)
+    }
+
+    pub async fn get_zammad_id_by_jira_id(&self, jira_id: &i32) -> anyhow::Result<i32> {
+        let zammad_id = sqlx::query("SELECT * FROM assignments WHERE jira_id = ?")
+            .bind(jira_id)
+            .fetch_one(&self.conn)
+            .await?
+            .try_get("zammad_id")
+            .map_err(|e| anyhow::anyhow!("Failed to get zammad_id from row: {}", e))?;
+
+        Ok(zammad_id)
     }
 
     pub async fn show_all_assignments(&self) -> anyhow::Result<()> {
